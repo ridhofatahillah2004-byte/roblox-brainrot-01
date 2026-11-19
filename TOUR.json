@@ -1,0 +1,1 @@
+{"steps":[{"screenshot":"1-start.png"},{"call":{"arg":"Golden","fn":"spawnEgg","module":"ServerScriptService.Server.Debug","on":"Server"},"keys":["E"],"screenshot":"2-play.png","wait_ms":1500},{"call":{"arg":"win","fn":"finish","module":"ServerScriptService.Server.Debug","on":"Server"},"screenshot":"3-end.png","wait_ms":1000}],"tour":1}
