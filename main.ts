@@ -1,21 +1,21 @@
-// Brainrot Egg Rush — the entrypoint for make.fun's roblox-brainrot-01
-// bounty (Node 22, standard library only). The game is this directory's
-// Rojo project: build it into game.rbxl with
-//   rojo build default.project.json --output game.rbxl
-// (or save the place from Roblox Studio as game.rbxl), take 3 or 4
-// screenshots of it running in Studio into screenshots/ (the first by
-// name is the cover, and one of them is the thumbnail uploaded for the
-// game on Roblox), fill in PLAY.json with the published place, then this
-// program hands it all in: it copies game.rbxl, src/, screenshots/ and
-// PLAY.json from beside this file to /output and writes
-// /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library.
+// Brainrot Egg Rush, a roblox-brainrot-01 entry (Node 22, standard library
+// only). The game is this directory's Rojo project: `rojo build
+// default.project.json --output game.rbxl` turns src/ and the world in
+// default.project.json into game.rbxl, and this program hands it in. It
+// copies game.rbxl, src/, screenshots/ and PLAY.json from beside this file
+// to /output and writes /output/dossier.json, the summary the judge reads,
+// with the vendored make.fun library.
+//
+// Screenshots come from Roblox Studio on the owner's computer (the game
+// has to be published first), so screenshots/ may not exist yet while the
+// code is being built: the folder is still created in /output, and the
+// dossier step then waits for the first real screenshot.
 //
 // Every name under /output starts with a letter, a digit or _ and holds
-// only letters, digits, . _ and -: the grader fails an entry whose
-// output holds any other, so a file such as .gitkeep or .DS_Store copied
-// in fails it. src/ and screenshots/ are therefore copied without any
-// name that starts with a dot, at any depth.
+// only letters, digits, . _ and -: the grader fails an entry whose output
+// holds any other, so a file such as .gitkeep or .DS_Store copied in fails
+// it. That is why src/ and screenshots/ are copied without any name that
+// starts with a dot, at any depth.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
@@ -28,25 +28,22 @@ import { buildDossier } from './vendor/makefun-roblox.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-/** cpSync's filter: leave out every file and directory whose name starts with a dot (.gitkeep, .DS_Store, .git). */
+/** Skip every file and directory whose name starts with a dot. */
 const notDotted = (path: string): boolean => !basename(path).startsWith('.');
-
-if (!existsSync(join(here, 'game.rbxl'))) {
-	throw new Error('game.rbxl is missing: build it first with `rojo build default.project.json --output game.rbxl`, or save the place from Roblox Studio as game.rbxl.');
-}
-if (!existsSync(join(here, 'screenshots'))) {
-	throw new Error('screenshots/ is missing: take 3 or 4 captures of the game running in Roblox Studio (16:9, each at most 256 KiB) and put them there; the first by name is the cover and one of them is the game thumbnail on Roblox.');
-}
 
 copyFileSync(join(here, 'game.rbxl'), join(out, 'game.rbxl'));
 copyFileSync(join(here, 'PLAY.json'), join(out, 'PLAY.json'));
 cpSync(join(here, 'src'), join(out, 'src'), { recursive: true, filter: notDotted });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true, filter: notDotted });
+if (existsSync(join(here, 'screenshots'))) {
+	cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true, filter: notDotted });
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; a place of more than 500000 instances, whose
-// scripts' sources come to over 8 MiB or whose scripts' paths come to over 1048576 characters, in all).
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes
+// the bytes; the others refuse an entry the scorer would refuse (more than
+// 4 screenshots or one over 256 KiB; a place of more than 500000 instances,
+// whose scripts' sources come to over 8 MiB or whose scripts' paths come to
+// over 1048576 characters, in all).
 writeFileSync(
 	join(out, 'dossier.json'),
 	buildDossier(out, { text_max_bytes: 65536, screenshots: { max: 4, max_bytes: 262144 }, max_instances: 500000, scripts_max_source_bytes: 8388608, scripts_max_path_chars: 1048576 }),

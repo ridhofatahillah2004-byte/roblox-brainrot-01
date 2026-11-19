@@ -1,63 +1,38 @@
--- Brainrot Egg Rush — rebirth: trade everything for a permanent
--- income multiplier and climb the ladder again, faster.
+-- RebirthService: pay $1M to rebirth. Every rebirth multiplies all income
+-- by five, so a rebirthed base earns far more from the same brainrots.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage.Shared.BrainrotConfig)
-local GameState = require(script.Parent.GameState)
-local PlayerData = require(script.Parent.PlayerData)
-local BaseService = require(script.Parent.BaseService)
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local BrainrotConfig = require(Shared:WaitForChild("BrainrotConfig"))
 
 local RebirthService = {}
 
-function RebirthService.rebirth(player)
-	local rec = GameState.Players[player]
-	if not rec then
+local ctx = nil
+
+local function onRebirth(player)
+	local record = ctx.PlayerData.get(player)
+	if not record then
 		return
 	end
-	local cost = Config.rebirthCost(rec.rebirths)
-	if rec.cash < cost then
-		GameState.Remotes.Notify:FireClient(player, {
-			text = "You need " .. Config.formatMoney(cost) .. " to rebirth.",
-			color = Color3.fromRGB(255, 120, 120),
-		})
+	if record.Rebirths >= BrainrotConfig.Rebirth.MaxLevel then
+		ctx.GameState.notify(player, "You are already at the max rebirth level.", "info")
 		return
 	end
-	-- Clear every brainrot the player owns, placed or following.
-	for id, record in pairs(rec.brainrots) do
-		BaseService.unplaceBrainrot(record)
-		if record.model then
-			record.model:Destroy()
-		end
-		GameState.Brainrots[id] = nil
+	local cost = BrainrotConfig.Rebirth.Cost
+	if not ctx.PlayerData.spendCash(player, cost) then
+		ctx.GameState.notify(player, "Rebirth costs $" .. tostring(cost) .. ".", "warn")
+		return
 	end
-	rec.brainrots = {}
-	rec.cash = 0
-	rec.carrying = nil
-	rec.rebirths += 1
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if leaderstats then
-		local cash = leaderstats:FindFirstChild("Cash")
-		if cash then
-			cash.Value = 0
-		end
-		local rebirths = leaderstats:FindFirstChild("Rebirths")
-		if rebirths then
-			rebirths.Value = rec.rebirths
-		end
-	end
-	local mult = PlayerData.multiplier(player)
-	GameState.Remotes.Notify:FireClient(player, {
-		text = "🌟 REBIRTH #" .. rec.rebirths .. "! All income is now x" .. string.format("%.2f", mult) .. " forever!",
-		color = Color3.fromRGB(255, 215, 0),
-	})
-	BaseService.pushState(player)
+	ctx.PlayerData.addRebirth(player)
+	local multiplier = BrainrotConfig.rebirthMultiplier(record.Rebirths)
+	ctx.GameState.notify(player, "REBIRTH! Your income is now x" .. tostring(multiplier) .. "!", "good")
 end
 
-function RebirthService.init()
-	GameState.Remotes.Rebirth.OnServerEvent:Connect(function(player)
-		RebirthService.rebirth(player)
-	end)
+function RebirthService.init(context)
+	ctx = context
+	local remote = ctx.Remotes:WaitForChild("RebirthEvent")
+	remote.OnServerEvent:Connect(onRebirth)
 end
 
 return RebirthService

@@ -1,110 +1,64 @@
--- Brainrot Egg Rush — staging helpers for screenshots and playtests.
--- These exist so a reviewer (or the owner, in Studio) can bring the
--- game to any screen fast: give money, drop an egg, fill a base, or
--- force the tsunami. TOUR.json calls `finish` for the end screenshot.
--- Never called by the game itself.
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-
-local Config = require(ReplicatedStorage.Shared.BrainrotConfig)
-local Factory = require(ReplicatedStorage.Shared.BrainrotFactory)
-local GameState = require(script.Parent.GameState)
-local PlayerData = require(script.Parent.PlayerData)
-local BaseService = require(script.Parent.BaseService)
-local WaveService = require(script.Parent.WaveService)
+-- Debug: staging helpers the tour (TOUR.json) and a reviewer in Studio
+-- call to bring the game to a screen: put an egg on the belt, start the
+-- tsunami now, or hand every player some cash. The functions take one
+-- argument, which may arrive as the first or the second parameter.
 
 local Debug = {}
 
--- Give a player cash (for staging the shop and rebirth screens).
-function Debug.giveMoney(player, amount)
-	PlayerData.addCash(player, amount or 100000)
-	BaseService.pushState(player)
-	return true
+local ctx = nil
+
+local function pickString(a, b)
+	if type(a) == "string" then
+		return a
+	elseif type(b) == "string" then
+		return b
+	end
+	return nil
 end
 
--- Drop an egg of the named tier on the conveyor belt.
--- Takes a single argument so TOUR.json can call it directly.
-function Debug.spawnEgg(tierKey)
-	local tier = nil
-	for _, t in ipairs(Config.EGG_TIERS) do
-		if t.key == tierKey then
-			tier = t
-			break
-		end
+local function pickNumber(a, b)
+	if type(a) == "number" then
+		return a
+	elseif type(b) == "number" then
+		return b
 	end
-	tier = tier or Config.EGG_TIERS[1]
-	local conveyor = Workspace:WaitForChild("Conveyor")
-	local spots = conveyor:WaitForChild("EggSpots"):GetChildren()
-	local spot = spots[1]
-	local model = Factory.buildEgg(tier, spot.Position + Vector3.new(0, 2, 0))
-	model.Parent = Workspace
-	return true
+	return nil
 end
 
--- Fill the first player's base with six assorted brainrots, placed.
-function Debug.fillBase(player)
-	player = player or Players:GetPlayers()[1]
-	if not player then
-		return false
+-- Put an egg of the named tier on the conveyor (default Basic).
+function Debug.spawnEgg(a, b)
+	local tierName = pickString(a, b) or "Basic"
+	if ctx and ctx.EggService then
+		return ctx.EggService.spawnEggOfTier(tierName)
 	end
-	local rec = GameState.Players[player]
-	if not rec then
-		return false
-	end
-	local picks = { "pipiKiwi", "chimpanzini", "bombardiro", "tungSahur", "tralala", "graipuss" }
-	for i, charKey in ipairs(picks) do
-		local mutation = Config.MUTATIONS[1]
-		if i >= 5 then
-			mutation = Config.MUTATIONS[2] -- Golden, for the showcase slots
-		end
-		local def = Config.CHARACTERS[charKey]
-		local pos = BaseService.slotPosition(player, i) or Vector3.new(0, 4, 0)
-		local model = Factory.buildBrainrot(charKey, mutation, pos)
-		model.Parent = Workspace
-		local id = GameState.nextId()
-		local record = {
-			id = id,
-			charKey = charKey,
-			name = def.name,
-			rarity = def.rarity,
-			mutation = mutation,
-			rate = Config.incomeRate(charKey, mutation),
-			owner = player,
-			state = "placed",
-			model = model,
-			slot = i,
-			beingStolenBy = nil,
-		}
-		GameState.Brainrots[id] = record
-		rec.brainrots[id] = record
-		local base = GameState.Bases[player]
-		if base then
-			base.slots[i] = id
-		end
-	end
-	PlayerData.addCash(player, 500000)
-	BaseService.pushState(player)
-	return true
+	return false
 end
 
--- Force the tsunami warning + sweep right now.
-function Debug.triggerWave()
-	WaveService.triggerNow()
-	return true
-end
-
--- TOUR.json entry point: "win" stages a rich base, "lose" fires the wave.
-function Debug.finish(arg)
-	if arg == "win" then
-		Debug.fillBase()
-		return true
-	elseif arg == "lose" then
-		Debug.triggerWave()
+-- Start the tsunami right now instead of waiting for the timer.
+function Debug.startWave(_a, _b)
+	if ctx and ctx.WaveService then
+		ctx.WaveService.triggerNow()
 		return true
 	end
 	return false
+end
+
+-- Give every player in the server the given amount of cash.
+function Debug.grantCash(a, b)
+	local amount = pickNumber(a, b) or 0
+	if not ctx or not ctx.PlayerData then
+		return false
+	end
+	local Players = game:GetService("Players")
+	for _, player in ipairs(Players:GetPlayers()) do
+		ctx.PlayerData.addCash(player, amount)
+		ctx.PlayerData.sync(player)
+	end
+	return true
+end
+
+function Debug.init(context)
+	ctx = context
 end
 
 return Debug

@@ -1,51 +1,41 @@
--- Brainrot Egg Rush — server entry point.
--- Creates the RemoteEvents, then starts every service in dependency
--- order: data first, then bases, eggs, stealing, waves and rebirth.
+-- Brainrot Egg Rush: buy meme eggs off the conveyor, hatch them into
+-- brainrots, bring them home to earn coins, and keep them safe from
+-- thieves and the tsunami. This script starts every service, in the
+-- order they depend on each other.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Server = ServerScriptService:WaitForChild("Server")
 
-local GameState = require(ServerScriptService.Server.GameState)
-local PlayerData = require(ServerScriptService.Server.PlayerData)
-local BaseService = require(ServerScriptService.Server.BaseService)
-local EggService = require(ServerScriptService.Server.EggService)
-local StealService = require(ServerScriptService.Server.StealService)
-local WaveService = require(ServerScriptService.Server.WaveService)
-local RebirthService = require(ServerScriptService.Server.RebirthService)
+local GameState = require(Server:WaitForChild("GameState"))
+local PlayerData = require(Server:WaitForChild("PlayerData"))
+local BaseService = require(Server:WaitForChild("BaseService"))
+local EggService = require(Server:WaitForChild("EggService"))
+local StealService = require(Server:WaitForChild("StealService"))
+local WaveService = require(Server:WaitForChild("WaveService"))
+local RebirthService = require(Server:WaitForChild("RebirthService"))
+local Debug = require(Server:WaitForChild("Debug"))
 
--- RemoteEvents live in ReplicatedStorage so the client can find them.
-local remotesFolder = Instance.new("Folder")
-remotesFolder.Name = "Remotes"
-remotesFolder.Parent = ReplicatedStorage
+-- One shared table every service reads its collaborators from, so no
+-- service has to require another at the top and risk a cycle.
+local ctx = {
+	GameState = GameState,
+	PlayerData = PlayerData,
+	BaseService = BaseService,
+	EggService = EggService,
+	StealService = StealService,
+	WaveService = WaveService,
+	RebirthService = RebirthService,
+	Debug = Debug,
+}
 
-local function makeRemote(name)
-	local remote = Instance.new("RemoteEvent")
-	remote.Name = name
-	remote.Parent = remotesFolder
-	GameState.Remotes[name] = remote
-	return remote
-end
+GameState.init(ctx)
+PlayerData.init(ctx)
+BaseService.init(ctx)
+EggService.init(ctx)
+StealService.init(ctx)
+WaveService.init(ctx)
+RebirthService.init(ctx)
+Debug.init(ctx)
+GameState.start()
 
-makeRemote("StateUpdate") -- server -> client: HUD state, once a second
-makeRemote("Notify") -- server -> client: toast notifications
-makeRemote("WaveWarning") -- server -> client: tsunami phase + countdown
-makeRemote("Rebirth") -- client -> server: rebirth request
-makeRemote("BuySlot") -- client -> server: buy another base slot
-makeRemote("RequestState") -- client -> server: ask for a fresh HUD state
-
-PlayerData.init()
-BaseService.init()
-EggService.init()
-StealService.init()
-WaveService.init()
-RebirthService.init()
-
--- Client-initiated requests.
-GameState.Remotes.BuySlot.OnServerEvent:Connect(function(player)
-	BaseService.buySlot(player)
-end)
-GameState.Remotes.RequestState.OnServerEvent:Connect(function(player)
-	BaseService.pushState(player)
-end)
-
-print("[Brainrot Egg Rush] Server started: bases, eggs, stealing, waves, rebirths ready.")
+print("Brainrot Egg Rush is running.")

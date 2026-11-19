@@ -1,200 +1,224 @@
--- Brainrot Egg Rush — shared game configuration.
--- Every number the game runs on lives here so the client HUD and the
--- server services always agree. No Roblox services are touched here,
--- so this module is safe to require from both sides.
+-- BrainrotConfig: every number that defines Brainrot Egg Rush.
+-- Pure data (no Roblox services), so it can be required by the server,
+-- by the client, and by a plain Luau test harness.
 
-local Config = {}
+local BrainrotConfig = {}
 
--- Economy ---------------------------------------------------------------
-Config.START_CASH = 250
-Config.BASE_SLOTS_FREE = 6
-Config.MAX_SLOTS = 10
--- Cost of buying extra base slots (slot number -> price in coins).
-Config.SLOT_COSTS = {
-	[7] = 50000,
-	[8] = 250000,
-	[9] = 1000000,
-	[10] = 5000000,
+-- How the game is tuned.
+BrainrotConfig.Tuning = {
+	-- Coins a new player starts with: exactly one Basic egg.
+	StartCash = 100,
+	-- Seconds between egg spawns on the conveyor.
+	EggSpawnInterval = 8,
+	-- Most eggs that may sit on the conveyor at once.
+	MaxEggsOnBelt = 5,
+	-- How long a bought egg takes to hatch once it is following you.
+	HatchSeconds = 6,
+	-- Seconds a player must hold E to buy an egg.
+	BuyHoldSeconds = 0.6,
+	-- Seconds a player must hold E to steal a rival brainrot.
+	StealHoldSeconds = 3,
+	-- How close (studs) a player must be to interact with an egg or brainrot.
+	InteractRange = 10,
+	-- Seconds between tsunami waves.
+	WaveInterval = 150,
+	-- Warning time before the wave arrives.
+	WaveWarningSeconds = 10,
+	-- How fast an egg slides along the conveyor (studs per second).
+	BeltSpeed = 6,
+	-- How fast a follower trails its owner (lerp factor per second).
+	FollowSpeed = 5,
+	-- Coins a carried brainrot sells for, as a share of its egg's price.
+	SellShare = 0.5,
+	-- How often income is paid out (seconds).
+	IncomeTickSeconds = 1,
+	-- How often player data is auto-saved (seconds).
+	AutosaveSeconds = 60,
 }
 
--- Rebirth: cash needed grows x5 per rebirth; each rebirth adds +25% income.
-Config.REBIRTH_BASE = 1000000
-Config.REBIRTH_SCALE = 5
-Config.REBIRTH_BONUS = 0.25
-
--- Eggs and waves ----------------------------------------------------------
-Config.EGG_SPAWN_INTERVAL = 8 -- seconds between new eggs on the belt
-Config.EGG_MAX_BELT = 6 -- eggs on the conveyor at once
-Config.HATCH_TIME = 6 -- seconds from purchase to hatch
-Config.WAVE_INTERVAL = 150 -- seconds between tsunami waves
-Config.WAVE_WARNING = 10 -- warning seconds before the wave sweeps
-Config.WAVE_SWEEP_TIME = 10 -- seconds the wall takes to cross the map
-Config.FOLLOW_SPEED = 18 -- studs/second for following eggs and brainrots
-Config.STEAL_HOLD = 3 -- seconds to hold a steal prompt
-Config.SLAP_RANGE = 12 -- studs: how close a slap must be to cancel a steal
-Config.SLAP_STUN = 2 -- seconds the thief is stunned after a slap
-
--- Rarities ----------------------------------------------------------------
--- rate is coins per second for a Normal brainrot of this rarity.
-Config.RARITIES = {
-	Common = { rate = 2, color = Color3.fromRGB(190, 190, 190) },
-	Rare = { rate = 8, color = Color3.fromRGB(80, 170, 255) },
-	Epic = { rate = 25, color = Color3.fromRGB(180, 80, 255) },
-	Legendary = { rate = 80, color = Color3.fromRGB(255, 180, 40) },
-	Mythic = { rate = 250, color = Color3.fromRGB(255, 60, 120) },
-}
-Config.RARITY_ORDER = { "Common", "Rare", "Epic", "Legendary", "Mythic" }
-
--- Mutations: roll weight and income multiplier.
-Config.MUTATIONS = {
-	{ name = "Normal", weight = 88, multiplier = 1, color = Color3.fromRGB(255, 255, 255) },
-	{ name = "Golden", weight = 8, multiplier = 2, color = Color3.fromRGB(255, 215, 0) },
-	{ name = "Diamond", weight = 3, multiplier = 4, color = Color3.fromRGB(120, 220, 255) },
-	{ name = "Rainbow", weight = 1, multiplier = 8, color = Color3.fromRGB(255, 120, 220) },
-}
-
--- Brainrot cast -----------------------------------------------------------
--- body/head/leg colors are RGB triples; accessory is one of the shapes
--- BrainrotFactory knows how to build ("bat", "ring", "fin", "crown",
--- "wings", "hat", "none"). rate overrides the rarity base rate.
-Config.CHARACTERS = {
+-- The cast: 18 Italian meme brainrots across 5 rarities.
+-- Income is coins per second while the brainrot sits in a base slot.
+-- BodyColor tints the character; Feature picks the accessory the factory adds.
+BrainrotConfig.Characters = {
 	-- Common
-	pipiKiwi = { name = "Pipi Kiwi", rarity = "Common", rate = 2,
-		body = { 120, 200, 90 }, head = { 255, 220, 130 }, accessory = "beak" },
-	frigoCamelo = { name = "Frigo Camelo", rarity = "Common", rate = 2,
-		body = { 230, 230, 235 }, head = { 200, 200, 210 }, accessory = "none" },
-	potHotspot = { name = "Pot Hotspot", rarity = "Common", rate = 2,
-		body = { 90, 90, 100 }, head = { 70, 70, 80 }, accessory = "steam" },
-	trippiTroppi = { name = "Trippi Troppi", rarity = "Common", rate = 3,
-		body = { 255, 140, 60 }, head = { 255, 170, 90 }, accessory = "fin" },
+	{ Name = "Chimpanzini Bananini", Rarity = "Common", Income = 2, BodyColor = Color3.fromRGB(232, 196, 106), Feature = "Banana" },
+	{ Name = "Lirili Larila", Rarity = "Common", Income = 3, BodyColor = Color3.fromRGB(148, 210, 189), Feature = "Cactus" },
+	{ Name = "Boneca Ambalabu", Rarity = "Common", Income = 4, BodyColor = Color3.fromRGB(224, 122, 95), Feature = "Frog" },
+	{ Name = "Trippi Troppi", Rarity = "Common", Income = 5, BodyColor = Color3.fromRGB(135, 206, 235), Feature = "Fish" },
 	-- Rare
-	chimpanzini = { name = "Chimpanzini Bananini", rarity = "Rare", rate = 8,
-		body = { 255, 220, 60 }, head = { 180, 130, 80 }, accessory = "banana" },
-	brrPatapim = { name = "Brr Brr Patapim", rarity = "Rare", rate = 8,
-		body = { 150, 110, 70 }, head = { 200, 160, 110 }, accessory = "none" },
-	giraffaCeleste = { name = "Giraffa Celeste", rarity = "Rare", rate = 9,
-		body = { 140, 200, 255 }, head = { 180, 220, 255 }, accessory = "horns" },
-	bonecaAmbalabu = { name = "Boneca Ambalabu", rarity = "Rare", rate = 9,
-		body = { 255, 150, 200 }, head = { 255, 200, 220 }, accessory = "hat" },
+	{ Name = "Tung Tung Tung Sahur", Rarity = "Rare", Income = 10, BodyColor = Color3.fromRGB(160, 120, 70), Feature = "Log" },
+	{ Name = "Ballerina Cappuccina", Rarity = "Rare", Income = 15, BodyColor = Color3.fromRGB(245, 222, 179), Feature = "Ballet" },
+	{ Name = "Cappuccino Assassino", Rarity = "Rare", Income = 20, BodyColor = Color3.fromRGB(139, 90, 43), Feature = "Cup" },
+	{ Name = "Tralalero Tralala", Rarity = "Rare", Income = 25, BodyColor = Color3.fromRGB(66, 135, 245), Feature = "Shark" },
 	-- Epic
-	bombardiro = { name = "Bombardiro Crocodilo", rarity = "Epic", rate = 25,
-		body = { 60, 180, 90 }, head = { 40, 140, 70 }, accessory = "wings" },
-	lirili = { name = "Lirili Larila", rarity = "Epic", rate = 25,
-		body = { 80, 200, 100 }, head = { 110, 220, 130 }, accessory = "spikes" },
-	cappuccino = { name = "Cappuccino Assassino", rarity = "Epic", rate = 30,
-		body = { 140, 100, 60 }, head = { 200, 170, 130 }, accessory = "katana" },
-	vacaSaturno = { name = "La Vaca Saturno Saturnita", rarity = "Epic", rate = 30,
-		body = { 245, 245, 245 }, head = { 230, 230, 230 }, accessory = "ring" },
+	{ Name = "Bombardiro Crocodilo", Rarity = "Epic", Income = 45, BodyColor = Color3.fromRGB(90, 140, 70), Feature = "Croc" },
+	{ Name = "Frigo Camelo", Rarity = "Epic", Income = 60, BodyColor = Color3.fromRGB(200, 200, 210), Feature = "Fridge" },
+	{ Name = "La Vaca Saturno Saturnita", Rarity = "Epic", Income = 80, BodyColor = Color3.fromRGB(220, 190, 230), Feature = "Ring" },
+	{ Name = "Giraffa Celeste", Rarity = "Epic", Income = 100, BodyColor = Color3.fromRGB(255, 215, 130), Feature = "Giraffe" },
 	-- Legendary
-	tungSahur = { name = "Tung Tung Tung Sahur", rarity = "Legendary", rate = 80,
-		body = { 150, 105, 60 }, head = { 120, 85, 45 }, accessory = "bat" },
-	ballerina = { name = "Ballerina Cappuccina", rarity = "Legendary", rate = 85,
-		body = { 250, 220, 200 }, head = { 240, 200, 170 }, accessory = "tutu" },
-	tralaleritos = { name = "Los Tralaleritos", rarity = "Legendary", rate = 90,
-		body = { 70, 140, 255 }, head = { 100, 170, 255 }, accessory = "fin" },
+	{ Name = "Los Tralaleritos", Rarity = "Legendary", Income = 140, BodyColor = Color3.fromRGB(80, 160, 255), Feature = "Shark" },
+	{ Name = "Graipuss Medussi", Rarity = "Legendary", Income = 170, BodyColor = Color3.fromRGB(190, 120, 220), Feature = "Jelly" },
+	{ Name = "Pot Hotspot", Rarity = "Legendary", Income = 200, BodyColor = Color3.fromRGB(230, 90, 60), Feature = "Pot" },
+	{ Name = "Las Tralaleritas", Rarity = "Legendary", Income = 220, BodyColor = Color3.fromRGB(255, 150, 200), Feature = "Shark" },
 	-- Mythic
-	tralala = { name = "Tralalero Tralala", rarity = "Mythic", rate = 250,
-		body = { 60, 130, 255 }, head = { 90, 160, 255 }, accessory = "fin" },
-	graipuss = { name = "Graipuss Medussi", rarity = "Mythic", rate = 260,
-		body = { 170, 90, 230 }, head = { 200, 130, 255 }, accessory = "tentacles" },
-	crocodillitos = { name = "Los Crocodillitos", rarity = "Mythic", rate = 280,
-		body = { 50, 170, 80 }, head = { 40, 130, 60 }, accessory = "wings" },
+	{ Name = "Ballerino Lololo", Rarity = "Mythic", Income = 250, BodyColor = Color3.fromRGB(255, 235, 150), Feature = "Ballet" },
+	{ Name = "Los Combinasionas", Rarity = "Mythic", Income = 280, BodyColor = Color3.fromRGB(120, 255, 170), Feature = "Crown" },
 }
 
--- Egg tiers: price and the rarity weights a hatch rolls from.
-Config.EGG_TIERS = {
-	{ key = "Basic", price = 100, color = { 200, 200, 200 },
-		weights = { Common = 70, Rare = 25, Epic = 4, Legendary = 1, Mythic = 0 } },
-	{ key = "Silver", price = 1000, color = { 190, 200, 215 },
-		weights = { Common = 40, Rare = 40, Epic = 15, Legendary = 4, Mythic = 1 } },
-	{ key = "Golden", price = 10000, color = { 255, 210, 60 },
-		weights = { Common = 0, Rare = 40, Epic = 35, Legendary = 20, Mythic = 5 } },
-	{ key = "Diamond", price = 100000, color = { 130, 220, 255 },
-		weights = { Common = 0, Rare = 0, Epic = 50, Legendary = 35, Mythic = 15 } },
-	{ key = "Rainbow", price = 1000000, color = { 255, 120, 220 },
-		weights = { Common = 0, Rare = 0, Epic = 0, Legendary = 60, Mythic = 40 } },
+-- Rarity colours, used by the HUD and by the factory's name tag.
+BrainrotConfig.RarityColors = {
+	Common = Color3.fromRGB(180, 180, 180),
+	Rare = Color3.fromRGB(90, 180, 255),
+	Epic = Color3.fromRGB(180, 90, 255),
+	Legendary = Color3.fromRGB(255, 180, 40),
+	Mythic = Color3.fromRGB(255, 60, 90),
 }
 
--- Helpers -----------------------------------------------------------------
--- Pick one entry from a {name = weight} table, weighted at random.
-function Config.weightedPick(weights)
-	local total = 0
-	for _, w in pairs(weights) do
-		total += w
-	end
-	if total <= 0 then
-		return nil
-	end
-	local roll = math.random() * total
-	for name, w in pairs(weights) do
-		roll -= w
-		if roll <= 0 then
-			return name
+-- Egg tiers. Weight is the chance a tier is picked when a new egg spawns
+-- on the conveyor. RarityWeights is the chance each rarity hatches from it.
+BrainrotConfig.EggTiers = {
+	{ Name = "Basic", Price = 100, Color = Color3.fromRGB(240, 240, 230), Weight = 55,
+		RarityWeights = { Common = 70, Rare = 22, Epic = 6, Legendary = 2, Mythic = 0 } },
+	{ Name = "Silver", Price = 1000, Color = Color3.fromRGB(200, 200, 210), Weight = 25,
+		RarityWeights = { Common = 40, Rare = 35, Epic = 18, Legendary = 6, Mythic = 1 } },
+	{ Name = "Golden", Price = 10000, Color = Color3.fromRGB(255, 215, 0), Weight = 12,
+		RarityWeights = { Common = 15, Rare = 35, Epic = 30, Legendary = 16, Mythic = 4 } },
+	{ Name = "Diamond", Price = 100000, Color = Color3.fromRGB(140, 230, 255), Weight = 6,
+		RarityWeights = { Common = 0, Rare = 20, Epic = 40, Legendary = 30, Mythic = 10 } },
+	{ Name = "Rainbow", Price = 1000000, Color = Color3.fromRGB(255, 120, 220), Weight = 2,
+		RarityWeights = { Common = 0, Rare = 0, Epic = 25, Legendary = 45, Mythic = 30 } },
+}
+
+-- Mutations rolled when an egg hatches. Weight is the roll chance.
+BrainrotConfig.Mutations = {
+	{ Name = "Normal", Multiplier = 1, Weight = 70, Color = Color3.fromRGB(255, 255, 255) },
+	{ Name = "Golden", Multiplier = 2, Weight = 20, Color = Color3.fromRGB(255, 215, 0) },
+	{ Name = "Diamond", Multiplier = 4, Weight = 8, Color = Color3.fromRGB(140, 230, 255) },
+	{ Name = "Rainbow", Multiplier = 8, Weight = 2, Color = Color3.fromRGB(255, 120, 220) },
+}
+
+-- Rebirth: pay the cost, income multiplies by Multiplier per level.
+BrainrotConfig.Rebirth = {
+	Cost = 1000000,
+	Multiplier = 5,
+	MaxLevel = 10,
+}
+
+-- Base slots. The first FreeSlots are open; the rest cost coins to unlock.
+BrainrotConfig.Base = {
+	PlotCount = 8,
+	SlotCount = 10,
+	FreeSlots = 2,
+	SlotCosts = { 500, 2000, 10000, 50000, 150000, 400000, 1000000, 2500000 },
+}
+
+-- The world layout. gen_project.py builds the same numbers into
+-- default.project.json, so the two files must agree.
+BrainrotConfig.World = {
+	PlotRadius = 46,
+	-- The conveyor runs along X through the middle of the plaza.
+	BeltHalfLength = 28,
+	-- The top of the belt, where eggs ride (the belt part is 1 stud thick,
+	-- centred at y = 1.5).
+	BeltY = 2,
+}
+
+-- Look a character up by name; returns nil when the name is unknown.
+function BrainrotConfig.findCharacter(name: string)
+	for _, character in ipairs(BrainrotConfig.Characters) do
+		if character.Name == name then
+			return character
 		end
 	end
 	return nil
 end
 
--- Pick a random character key of the given rarity.
-function Config.randomCharacter(rarity)
+-- Look an egg tier up by name; returns nil when the name is unknown.
+function BrainrotConfig.findEggTier(name: string)
+	for _, tier in ipairs(BrainrotConfig.EggTiers) do
+		if tier.Name == name then
+			return tier
+		end
+	end
+	return nil
+end
+
+-- Look a mutation up by name; returns nil when the name is unknown.
+function BrainrotConfig.findMutation(name: string)
+	for _, mutation in ipairs(BrainrotConfig.Mutations) do
+		if mutation.Name == name then
+			return mutation
+		end
+	end
+	return nil
+end
+
+-- Pick one entry from a weighted table ({ Name = weight, ... } or a list
+-- of tables with a Weight field). rng is math.random by default; tests
+-- may pass their own function.
+function BrainrotConfig.weightedPick(entries, rng)
+	rng = rng or math.random
+	local total = 0
+	for _, entry in ipairs(entries) do
+		total += entry.Weight
+	end
+	local roll = rng(1, total)
+	local running = 0
+	for _, entry in ipairs(entries) do
+		running += entry.Weight
+		if roll <= running then
+			return entry
+		end
+	end
+	return entries[#entries]
+end
+
+-- Roll a rarity for an egg tier, from its RarityWeights table.
+function BrainrotConfig.rollRarity(tier, rng)
+	local entries = {}
+	for rarity, weight in pairs(tier.RarityWeights) do
+		table.insert(entries, { Name = rarity, Weight = weight })
+	end
+	-- Sort so the roll is stable no matter the hash order.
+	table.sort(entries, function(a, b) return a.Name < b.Name end)
+	return BrainrotConfig.weightedPick(entries, rng).Name
+end
+
+-- Roll a character of the given rarity.
+function BrainrotConfig.rollCharacter(rarity: string, rng)
 	local pool = {}
-	for key, def in pairs(Config.CHARACTERS) do
-		if def.rarity == rarity then
-			table.insert(pool, key)
+	for _, character in ipairs(BrainrotConfig.Characters) do
+		if character.Rarity == rarity then
+			table.insert(pool, character)
 		end
 	end
 	if #pool == 0 then
 		return nil
 	end
-	return pool[math.random(#pool)]
+	return pool[(rng or math.random)(1, #pool)]
 end
 
--- Roll a mutation from Config.MUTATIONS.
-function Config.rollMutation()
-	local weights = {}
-	for _, m in ipairs(Config.MUTATIONS) do
-		weights[m.name] = m.weight
-	end
-	local name = Config.weightedPick(weights)
-	for _, m in ipairs(Config.MUTATIONS) do
-		if m.name == name then
-			return m
-		end
-	end
-	return Config.MUTATIONS[1]
+-- Roll a mutation for a fresh hatch.
+function BrainrotConfig.rollMutation(rng)
+	return BrainrotConfig.weightedPick(BrainrotConfig.Mutations, rng)
 end
 
--- Coins per second for a brainrot of this character and mutation.
-function Config.incomeRate(charKey, mutation)
-	local def = Config.CHARACTERS[charKey]
-	if not def then
+-- Roll the egg tier for a fresh conveyor spawn.
+function BrainrotConfig.rollEggTier(rng)
+	return BrainrotConfig.weightedPick(BrainrotConfig.EggTiers, rng)
+end
+
+-- The income multiplier for a rebirth level.
+function BrainrotConfig.rebirthMultiplier(level: number): number
+	return BrainrotConfig.Rebirth.Multiplier ^ level
+end
+
+-- The price to unlock a slot (1-based). Free slots cost 0.
+function BrainrotConfig.slotCost(slotIndex: number): number
+	if slotIndex <= BrainrotConfig.Base.FreeSlots then
 		return 0
 	end
-	return def.rate * mutation.multiplier
+	return BrainrotConfig.Base.SlotCosts[slotIndex - BrainrotConfig.Base.FreeSlots] or 0
 end
 
--- Cash needed to rebirth at the given rebirth count (0-based).
-function Config.rebirthCost(rebirths)
-	return Config.REBIRTH_BASE * (Config.REBIRTH_SCALE ^ rebirths)
-end
-
--- Income multiplier from rebirths.
-function Config.rebirthMultiplier(rebirths)
-	return 1 + Config.REBIRTH_BONUS * rebirths
-end
-
--- Short human-readable money, e.g. 1.5K, 2.3M, 12.0B.
-function Config.formatMoney(n)
-	n = math.floor(n + 0.5)
-	if n < 1000 then
-		return "$" .. tostring(n)
-	elseif n < 1000000 then
-		return string.format("$%.1fK", n / 1000)
-	elseif n < 1000000000 then
-		return string.format("$%.1fM", n / 1000000)
-	else
-		return string.format("$%.1fB", n / 1000000000)
-	end
-end
-
-return Config
+return BrainrotConfig

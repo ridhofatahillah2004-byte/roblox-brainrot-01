@@ -1,197 +1,231 @@
--- Brainrot Egg Rush — stealing: hold a prompt on a rival's brainrot to
--- take it, while its owner can slap you to cancel the steal and send
--- you flying. The threat that makes a full base worth defending.
+-- StealService: stealing a rival's brainrot and fighting back with the
+-- slap tool. A steal takes 3 seconds of holding E beside the brainrot;
+-- a slap from its owner cancels the steal or wins a stolen brainrot back.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterPack = game:GetService("StarterPack")
 
-local Config = require(ReplicatedStorage.Shared.BrainrotConfig)
-local GameState = require(script.Parent.GameState)
-local BaseService = require(script.Parent.BaseService)
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local BrainrotConfig = require(Shared:WaitForChild("BrainrotConfig"))
 
 local StealService = {}
 
-local slapCooldown = {}
+local ctx = nil
+local steals = {}
+local lastSlap = {}
 
--- Attach the steal prompt to a newly placed brainrot.
-function StealService.attachPrompt(record)
-	if not record.model then
-		return
+local SLAP_RANGE = 9
+local SLAP_COOLDOWN = 2
+
+local function characterRoot(player)
+	local character = player.Character
+	if not character then
+		return nil
 	end
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "Steal"
-	prompt.ActionText = "Steal"
-	prompt.ObjectText = record.name .. " — " .. Config.formatMoney(record.rate) .. "/s"
-	prompt.HoldDuration = Config.STEAL_HOLD
-	prompt.MaxActivationDistance = 8
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = record.model.PrimaryPart
-
-	prompt.PromptButtonHoldBegan:Connect(function(player)
-		if player == record.owner then
-			return
-		end
-		GameState.Steals[player] = { brainrotId = record.id, victim = record.owner, cancelled = false }
-		record.beingStolenBy = player
-		if record.owner then
-			GameState.Remotes.Notify:FireClient(record.owner, {
-				text = "⚠️ " .. player.DisplayName .. " is stealing your " .. record.name .. "! Slap them!",
-				color = Color3.fromRGB(255, 80, 80),
-			})
-		end
-	end)
-
-	prompt.PromptButtonHoldEnded:Connect(function(player)
-		local steal = GameState.Steals[player]
-		if steal and steal.brainrotId == record.id then
-			GameState.Steals[player] = nil
-			record.beingStolenBy = nil
-		end
-	end)
-
-	prompt.Triggered:Connect(function(player)
-		StealService.completeSteal(player, record)
-	end)
-
-	record.prompt = prompt
+	return character:FindFirstChild("HumanoidRootPart")
 end
 
-function StealService.detachPrompt(record)
-	if record.prompt then
-		record.prompt:Destroy()
-		record.prompt = nil
-	end
+-- Build the slap tool every player carries.
+local function buildSlapTool()
+	local tool = Instance.new("Tool")
+	tool.Name = "Slap"
+	tool.ToolTip = "Slap a thief to stop them stealing your brainrots!"
+	tool.RequiresHandle = true
+	tool.CanBeDropped = false
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 0.4, 1.6)
+	handle.Color = Color3.fromRGB(255, 220, 90)
+	handle.Material = Enum.Material.SmoothPlastic
+	handle.CanCollide = false
+	handle.Parent = tool
+	return tool
 end
 
--- The hold finished: move the brainrot to the thief's base if every
--- check still holds (free slot, still placed, steal not cancelled).
-function StealService.completeSteal(player, record)
-	local steal = GameState.Steals[player]
-	GameState.Steals[player] = nil
-	record.beingStolenBy = nil
-	if not steal or steal.cancelled or steal.brainrotId ~= record.id then
+function StealService.giveSlapTool(player)
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not backpack or backpack:FindFirstChild("Slap") then
 		return
 	end
-	if record.state ~= "placed" then
+	buildSlapTool().Parent = backpack
+end
+
+local function findTarget(uid)
+	local folder = ctx.GameState.getBrainrotFolder()
+	for _, model in ipairs(folder:GetChildren()) do
+		if model:IsA("Model") and model:GetAttribute("Uid") == uid then
+			return model
+		end
+	end
+	return nil
+end
+
+local function onInteractHold(player, kind, uid)
+	if kind ~= "Brainrot" then
 		return
 	end
-	if record.owner == player then
+	local target = findTarget(uid)
+	if not target then
 		return
 	end
-	local victim = record.owner
-	if BaseService.firstFreeSlot(player) == nil then
-		GameState.Remotes.Notify:FireClient(player, { text = "Your base is full — no room for the steal!", color = Color3.fromRGB(255, 120, 120) })
+	if target:GetAttribute("State") ~= "Slotted" then
 		return
 	end
-	-- Move it: out of the victim's record and slots, into the thief's.
-	local victimRec = victim and GameState.Players[victim]
-	if victimRec then
-		victimRec.brainrots[record.id] = nil
-	end
-	BaseService.unplaceBrainrot(record)
-	StealService.detachPrompt(record)
-	local thiefRec = GameState.Players[player]
-	if not thiefRec then
+	if target:GetAttribute("OwnerUserId") == player.UserId then
 		return
 	end
-	thiefRec.brainrots[record.id] = record
-	record.owner = player
-	record.state = "following"
-	GameState.Remotes.Notify:FireClient(player, { text = "You stole " .. record.name .. "! Run it home!", color = Color3.fromRGB(140, 255, 140) })
-	if victim then
-		GameState.Remotes.Notify:FireClient(victim, { text = "💢 " .. player.DisplayName .. " stole your " .. record.name .. "!", color = Color3.fromRGB(255, 80, 80) })
+	local hold = steals[player]
+	if not hold or hold.target ~= target then
+		steals[player] = { target = target, progress = 0, lastSeen = os.clock() }
+		local ownerId = target:GetAttribute("OwnerUserId")
+		local owner = Players:GetPlayerByUserId(ownerId)
+		if owner then
+			ctx.GameState.notify(owner, "Someone is stealing your " .. target.Name .. "! Slap them!", "warn")
+		end
+	else
+		hold.lastSeen = os.clock()
 	end
 end
 
--- The slap tool: cancels an in-progress steal on your own brainrots
--- and knocks the thief away, stunned for a moment.
-local function onSlapActivated(player)
+-- Hand a stolen brainrot to its new owner and let it follow them home.
+local function completeSteal(thief, target)
+	local ownerId = target:GetAttribute("OwnerUserId")
+	local owner = Players:GetPlayerByUserId(ownerId)
+	ctx.BaseService.removeBrainrot(target)
+	target:SetAttribute("OwnerUserId", thief.UserId)
+	target:SetAttribute("StolenFrom", ownerId)
+	target:SetAttribute("State", "Following")
+	ctx.EggService.trackFollower(target, thief, "brainrot")
+	ctx.GameState.notify(thief, "You stole " .. target.Name .. "! Get it to your base!", "good")
+	if owner then
+		ctx.GameState.notify(owner, "Your " .. target.Name .. " was stolen!", "warn")
+	end
+end
+
+local function stepSteals(dt)
 	local now = os.clock()
-	if slapCooldown[player] and now - slapCooldown[player] < 1 then
-		return
-	end
-	slapCooldown[player] = now
-	local char = player.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if not root then
-		return
-	end
-	for thief, steal in pairs(GameState.Steals) do
-		if steal.victim == player and not steal.cancelled then
-			local thiefChar = thief.Character
-			local thiefRoot = thiefChar and thiefChar:FindFirstChild("HumanoidRootPart")
-			if thiefRoot and (thiefRoot.Position - root.Position).Magnitude <= Config.SLAP_RANGE then
-				steal.cancelled = true
-				local away = (thiefRoot.Position - root.Position).Unit
-				thiefRoot.CFrame = thiefRoot.CFrame + Vector3.new(away.X * 20, 0, away.Z * 20) + Vector3.new(0, 4, 0)
-				local humanoid = thiefChar:FindFirstChildOfClass("Humanoid")
-				if humanoid then
-					humanoid.WalkSpeed = 0
-					task.delay(Config.SLAP_STUN, function()
-						if humanoid.Parent then
-							humanoid.WalkSpeed = 16
-						end
-					end)
+	for player, hold in pairs(steals) do
+		local target = hold.target
+		if not player.Parent or not target or not target.Parent then
+			steals[player] = nil
+		elseif now - hold.lastSeen > 0.5 then
+			hold.progress = 0
+		elseif target:GetAttribute("State") ~= "Slotted" then
+			steals[player] = nil
+		else
+			local root = characterRoot(player)
+			local targetRoot = target.PrimaryPart
+			if not root or not targetRoot then
+				hold.progress = 0
+			elseif (root.Position - targetRoot.Position).Magnitude > BrainrotConfig.Tuning.InteractRange then
+				hold.progress = 0
+			else
+				hold.progress += dt
+				if hold.progress >= BrainrotConfig.Tuning.StealHoldSeconds then
+					steals[player] = nil
+					completeSteal(player, target)
 				end
-				GameState.Remotes.Notify:FireClient(player, { text = "SLAP! You stopped the steal!", color = Color3.fromRGB(140, 255, 140) })
-				GameState.Remotes.Notify:FireClient(thief, { text = "You got slapped! The steal failed.", color = Color3.fromRGB(255, 120, 120) })
 			end
 		end
 	end
 end
 
-function StealService.giveSlapTool(player)
-	local tool = Instance.new("Tool")
-	tool.Name = "Slap"
-	tool.RequiresHandle = true
-	tool.CanBeDropped = false
-	local handle = Instance.new("Part")
-	handle.Name = "Handle"
-	handle.Size = Vector3.new(0.6, 2.4, 0.6)
-	handle.Color = Color3.fromRGB(255, 200, 120)
-	handle.Material = Enum.Material.SmoothPlastic
-	handle.Parent = tool
-	tool.Activated:Connect(function()
-		onSlapActivated(player)
-	end)
-	local backpack = player:WaitForChild("Backpack")
-	tool.Parent = backpack
+-- A thief near the owner: stealing from them, or carrying one of theirs.
+local function findThiefNear(owner)
+	local ownerRoot = characterRoot(owner)
+	if not ownerRoot then
+		return nil, nil
+	end
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= owner then
+			local hold = steals[other]
+			if hold and hold.target and hold.target:GetAttribute("OwnerUserId") == owner.UserId then
+				local otherRoot = characterRoot(other)
+				if otherRoot and (otherRoot.Position - ownerRoot.Position).Magnitude <= SLAP_RANGE then
+					return other, nil
+				end
+			end
+			-- Carrying a brainrot stolen from this owner.
+			local folder = ctx.GameState.getBrainrotFolder()
+			for _, model in ipairs(folder:GetChildren()) do
+				if model:IsA("Model")
+					and model:GetAttribute("OwnerUserId") == other.UserId
+					and model:GetAttribute("StolenFrom") == owner.UserId
+					and model:GetAttribute("State") == "Following"
+				then
+					local otherRoot = characterRoot(other)
+					if otherRoot and (otherRoot.Position - ownerRoot.Position).Magnitude <= SLAP_RANGE then
+						return other, model
+					end
+				end
+			end
+		end
+	end
+	return nil, nil
 end
 
--- Prompts live on placed brainrots: attach when one is placed, detach
--- when it leaves a base. BaseService does the placing, so watch the
--- brainrot table for state changes each heartbeat.
-local function promptWatcher()
-	for _, record in pairs(GameState.Brainrots) do
-		if record.state == "placed" and record.prompt == nil then
-			StealService.attachPrompt(record)
-		elseif record.state ~= "placed" and record.prompt ~= nil then
-			StealService.detachPrompt(record)
+local function onSlap(player)
+	local now = os.clock()
+	if now - (lastSlap[player] or 0) < SLAP_COOLDOWN then
+		return
+	end
+	lastSlap[player] = now
+	local thief, carried = findThiefNear(player)
+	if not thief then
+		return
+	end
+	-- Cancel whatever they were stealing.
+	steals[thief] = nil
+	-- Knock them back.
+	local thiefRoot = characterRoot(thief)
+	local ownerRoot = characterRoot(player)
+	if thiefRoot and ownerRoot then
+		local away = thiefRoot.Position - ownerRoot.Position
+		if away.Magnitude > 0.1 then
+			thiefRoot.AssemblyLinearVelocity = away.Unit * 35 + Vector3.new(0, 18, 0)
 		end
+	end
+	-- Win a stolen brainrot back: home to the owner's base, or follow them.
+	if carried then
+		ctx.EggService.untrackFollower(carried)
+		carried:SetAttribute("OwnerUserId", player.UserId)
+		carried:SetAttribute("StolenFrom", 0)
+		local slot = ctx.BaseService.placeBrainrot(player, carried)
+		if slot == 0 then
+			ctx.EggService.trackFollower(carried, player, "brainrot")
+		end
+		ctx.GameState.notify(player, "Slap! You won " .. carried.Name .. " back!", "good")
+		ctx.GameState.notify(thief, "You got slapped and lost " .. carried.Name .. "!", "warn")
+	else
+		ctx.GameState.notify(player, "Slap! The thief backed off.", "good")
+		ctx.GameState.notify(thief, "You got slapped! The steal failed.", "warn")
 	end
 end
 
-function StealService.init()
+function StealService.init(context)
+	ctx = context
+
+	-- One slap tool in the StarterPack so every spawn gets it.
+	local template = buildSlapTool()
+	template.Parent = StarterPack
 	for _, player in ipairs(Players:GetPlayers()) do
 		StealService.giveSlapTool(player)
 	end
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
 			task.wait(0.5)
-			local backpack = player:FindFirstChild("Backpack")
-			if backpack and not backpack:FindFirstChild("Slap") then
-				StealService.giveSlapTool(player)
-			end
+			StealService.giveSlapTool(player)
 		end)
 	end)
-	-- Prompts live on placed brainrots: attach when one is placed, detach
-	-- when it leaves a base. Checked twice a second, not every frame.
-	task.spawn(function()
-		while true do
-			task.wait(0.5)
-			promptWatcher()
-		end
-	end)
+
+	local holdRemote = ctx.Remotes:WaitForChild("InteractHold")
+	holdRemote.OnServerEvent:Connect(onInteractHold)
+	local slapRemote = ctx.Remotes:WaitForChild("SlapEvent")
+	slapRemote.OnServerEvent:Connect(onSlap)
+
+	RunService.Heartbeat:Connect(stepSteals)
 end
 
 return StealService

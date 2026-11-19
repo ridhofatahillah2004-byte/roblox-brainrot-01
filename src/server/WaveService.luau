@@ -1,127 +1,126 @@
--- Brainrot Egg Rush — the tsunami wave: every few minutes a warning
--- sounds and a wall of water sweeps the map. Anyone caught outside
--- their own base is flung back and drops whatever egg they carry.
--- The threat that forces the dash home with the catch.
+-- WaveService: the tsunami. Every few minutes a warning goes out, then a
+-- giant wave sweeps the map from west to east. Players caught outside
+-- their own base are thrown back and drop what they were carrying.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local Config = require(ReplicatedStorage.Shared.BrainrotConfig)
-local GameState = require(script.Parent.GameState)
-local BaseService = require(script.Parent.BaseService)
-local EggService = require(script.Parent.EggService)
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local BrainrotConfig = require(Shared:WaitForChild("BrainrotConfig"))
 
 local WaveService = {}
 
-local MAP_HALF = 150 -- the wall travels from -MAP_HALF to +MAP_HALF on Z
-local wall = nil
+local ctx = nil
+local waveActive = false
+local waveRequested = false
 
-local function fireWarning(phase, secondsLeft)
-	GameState.Remotes.WaveWarning:FireAllClients({ phase = phase, secondsLeft = secondsLeft })
-end
+local WALL_SPEED = 40
+local WALL_START_X = -150
+local WALL_END_X = 150
+local HIT_BAND = 7
 
-local function buildWall()
-	local part = Instance.new("Part")
-	part.Name = "TsunamiWall"
-	part.Size = Vector3.new(420, 46, 4)
-	part.Color = Color3.fromRGB(60, 140, 255)
-	part.Transparency = 0.35
-	part.Material = Enum.Material.Neon
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CFrame = CFrame.new(0, 20, -MAP_HALF)
-	part.Parent = Workspace
-	return part
-end
-
--- Fling everyone the wall is about to catch who is not safe at home.
-local function sweepStep()
-	for _, player in ipairs(Players:GetPlayers()) do
-		if not BaseService.isOnBase(player) then
-			local char = player.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart")
-			if root then
-				-- Only fling players the wall has actually reached.
-				if math.abs(root.Position.Z - wall.Position.Z) < 12 then
-					root.AssemblyLinearVelocity = Vector3.new(0, 55, 90)
-					EggService.dropEgg(player)
-					GameState.Remotes.Notify:FireClient(player, { text = "🌊 The tsunami got you! Get back to your base!", color = Color3.fromRGB(120, 180, 255) })
-				end
-			end
-		end
+-- Throw a player back and make them drop what they carry.
+local function hitPlayer(player, wallX)
+	local character = player.Character
+	if not character then
+		return
 	end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local direction = 1
+	if root.Position.X > wallX then
+		direction = 1
+	else
+		direction = -1
+	end
+	root.AssemblyLinearVelocity = Vector3.new(30 * direction, 25, 0)
+	ctx.EggService.dropCarried(player)
+	ctx.GameState.notify(player, "The tsunami swept you away! You dropped what you were carrying.", "warn")
 end
 
 local function runWave()
-	GameState.WaveActive = true
-	wall = buildWall()
-	fireWarning("sweep", 0)
-	local start = os.clock()
-	local sweepConn
-	sweepConn = RunService.Heartbeat:Connect(function()
-		local t = (os.clock() - start) / Config.WAVE_SWEEP_TIME
-		if t >= 1 then
-			sweepConn:Disconnect()
-			if wall then
-				wall:Destroy()
-				wall = nil
-			end
-			GameState.WaveActive = false
-			GameState.NextWaveIn = Config.WAVE_INTERVAL
-			fireWarning("done", 0)
-			return
-		end
-		local z = -MAP_HALF + t * (MAP_HALF * 2)
-		wall.CFrame = CFrame.new(0, 20, z)
-		sweepStep()
-	end)
-end
-
-function WaveService.triggerNow()
-	if GameState.WaveActive then
+	if waveActive then
 		return
 	end
-	GameState.NextWaveIn = 0
+	waveActive = true
+
+	local wall = Instance.new("Part")
+	wall.Name = "TsunamiWave"
+	wall.Size = Vector3.new(6, 45, 300)
+	wall.Color = Color3.fromRGB(40, 140, 255)
+	wall.Transparency = 0.4
+	wall.Material = Enum.Material.Glass
+	wall.Anchored = true
+	wall.CanCollide = false
+	wall.CFrame = CFrame.new(WALL_START_X, 12, 0)
+	wall.Parent = Workspace
+
+	local hit = {}
+	local connection
+	connection = RunService.Heartbeat:Connect(function(dt)
+		if not wall.Parent then
+			connection:Disconnect()
+			return
+		end
+		local x = wall.Position.X + WALL_SPEED * dt
+		wall.CFrame = CFrame.new(x, 12, 0)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if not hit[player] then
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+				if root and math.abs(root.Position.X - x) <= HIT_BAND then
+					if not ctx.GameState.isOnOwnBase(player) then
+						hit[player] = true
+						hitPlayer(player, x)
+					end
+				end
+			end
+		end
+		if x >= WALL_END_X then
+			connection:Disconnect()
+			wall:Destroy()
+			waveActive = false
+			ctx.GameState.notifyAll("The tsunami passed. Back to the conveyor!", "info")
+		end
+	end)
 end
 
-function WaveService.init()
-	GameState.NextWaveIn = Config.WAVE_INTERVAL
+-- Start a wave right now (the Debug module calls this from a tour step).
+function WaveService.triggerNow()
+	if waveActive then
+		return
+	end
+	waveRequested = true
+end
+
+local function startLoop()
 	task.spawn(function()
 		while true do
-			task.wait(1)
-			if GameState.WaveActive then
-				continue
+			local waited = 0
+			local interval = BrainrotConfig.Tuning.WaveInterval
+			while waited < interval and not waveRequested do
+				task.wait(1)
+				waited += 1
 			end
-			GameState.NextWaveIn -= 1
-			if GameState.NextWaveIn <= 0 then
-				-- Warning phase: 10 seconds to run home.
-				for i = Config.WAVE_WARNING, 1, -1 do
-					fireWarning("warning", i)
-					-- Flash the beacon red while the warning sounds.
-					local beacon = Workspace:FindFirstChild("Beacon")
-					local light = beacon and beacon:FindFirstChild("BeaconLight")
-					if light then
-						light.Color = Color3.fromRGB(255, 40, 40)
-						light.Material = Enum.Material.Neon
-					end
-					task.wait(1)
-				end
-				local beacon = Workspace:FindFirstChild("Beacon")
-				local light = beacon and beacon:FindFirstChild("BeaconLight")
-				if light then
-					light.Color = Color3.fromRGB(255, 220, 60)
-					light.Material = Enum.Material.SmoothPlastic
-				end
-				runWave()
-			elseif GameState.NextWaveIn % 10 == 0 or GameState.NextWaveIn <= 5 then
-				fireWarning("countdown", GameState.NextWaveIn)
+			waveRequested = false
+			ctx.GameState.notifyAll("TSUNAMI INCOMING! Get to your base in " .. tostring(BrainrotConfig.Tuning.WaveWarningSeconds) .. " seconds!", "warn")
+			task.wait(BrainrotConfig.Tuning.WaveWarningSeconds)
+			runWave()
+			-- Wait until the wave finishes before counting the next interval.
+			while waveActive do
+				task.wait(0.5)
 			end
 		end
 	end)
+end
+
+function WaveService.init(context)
+	ctx = context
+	startLoop()
 end
 
 return WaveService
