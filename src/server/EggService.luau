@@ -126,7 +126,12 @@ local function hatchEgg(egg)
 		egg.model:Destroy()
 	end
 	GameState.Eggs[egg.id] = nil
-	if not player or not charKey then
+	-- The player may have left during the 6s hatch window: GameState
+	-- drops their record on PlayerRemoving, so rec is nil and the
+	-- brainrot below would have no owner to follow or earn for. Bail
+	-- out instead of crashing on rec.brainrots and leaving an orphan
+	-- model in the world that nobody can ever place.
+	if not player or not rec or not charKey then
 		return
 	end
 	local char = player.Character
